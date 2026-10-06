@@ -244,15 +244,17 @@ silent() {
     local output
     local status
     local command="$@"
-    
+
     if [ "$SILENT_MODE" = "Yes" ]; then
-        output="$($command 2>&1)"
+        output=$("$@" 2>&1)
         status=$?
 
-        if echo "$output" | grep -q "out of memory"; then
-            failure $BASH_LINENO "$command" "$status" "Out of Memory"
-        elif [ $status -ne 0 ]; then
-            failure $BASH_LINENO "$command" "$status" "$output"
+        if [ $status -ne 0 ]; then
+            if echo "$output" | grep -qi -E "out of memory|heap limit|allocation failed"; then
+                failure "$BASH_LINENO" "$command" "$status" "Out of Memory"
+            else
+                failure "$BASH_LINENO" "$command" "$status" "$output"
+            fi
         fi
     fi
 }
@@ -262,13 +264,21 @@ verbose() {
     local status
     local command="$@"
 
-    output=$($command 2>&1 | tee /dev/tty)
-    status=$?
+    local logfile
+    logfile=$(mktemp)
 
-    if echo "$output" | grep -q "out of memory"; then
-        failure $BASH_LINENO "$command" "$status" "Out of Memory"
-    elif [ $status -ne 0 ]; then
-        failure $BASH_LINENO "$command" "$status" "$output"
+    # Execute command, stream output to tty and capture to logfile
+    "$@" 2>&1 | tee "$logfile"
+    status=${PIPESTATUS[0]}
+    output=$(<"$logfile")
+    rm -f "$logfile"
+
+    if [ $status -ne 0 ]; then
+        if echo "$output" | grep -qi -E "out of memory|heap limit|allocation failed"; then
+            failure "$BASH_LINENO" "$command" "$status" "Out of Memory"
+        else
+            failure "$BASH_LINENO" "$command" "$status" "$output"
+        fi
     fi
 }
 
@@ -619,7 +629,7 @@ setup_nodejs(){
 }
 
 setup_nodejs
-export NODE_OPTIONS=--dns-result-order=ipv4first
+export NODE_OPTIONS="--dns-result-order=ipv4first --max-old-space-size=2560"
 
 # Validate Cloud Database Network Connectivity using Node.js
 validate_cloud_db_connectivity() {
@@ -763,7 +773,7 @@ EOF
   fi
 
   print_status "Installing npm dependencies..."
-  $STD npm install
+  $STD npm install --include=dev
 }
 
 pull_checkout_ztnet
@@ -783,7 +793,13 @@ set_env_temp_var "NEXTAUTH_URL" "$NEXTAUTH_URL"
 set_env_temp_var "NEXT_PUBLIC_APP_VERSION" "$NEXT_PUBLIC_APP_VERSION"
 set_env_temp_var "NEXTAUTH_SECRET" "$NEXTAUTH_SECRET"
 
+# Export all critical variables required by Next.js and Prisma during build
 export DATABASE_URL
+export NEXTAUTH_URL
+export NEXTAUTH_SECRET
+export NEXT_PUBLIC_APP_VERSION
+export NODE_ENV=production
+export SKIP_ENV_VALIDATION=1
 
 # Prisma Database Migrations & Next.js Build
 print_status "Applying database migrations to Cloud Database..."
@@ -796,12 +812,11 @@ print_status "Generating Prisma client..."
 $STD npx prisma generate
 
 print_status "Building ZTnet artifacts... This may take a while."
-export SKIP_ENV_VALIDATION=1
 $STD npm run build
 
 # Verify build artifact generation
 if [ ! -d "$TEMP_REPO_DIR/.next/standalone" ]; then
-  failure $BASH_LINENO "npm run build" 1 "Build did not generate .next/standalone directory. Please check if the build process was terminated by memory limits (OOM)."
+  failure "$BASH_LINENO" "npm run build" "1" "Build did not generate .next/standalone directory. Please check if the build process was terminated by memory limits (OOM)."
 fi
 
 # Deploy Artifacts
@@ -836,7 +851,7 @@ fi
 
 # Validate server.js exists before proceeding
 if [ ! -f "$TARGET_DIR/server.js" ]; then
-  failure $BASH_LINENO "Deploy Artifacts" 1 "server.js was not found in $TARGET_DIR after copying artifacts. Check directory structure: $(ls -la "$TARGET_DIR" 2>&1)"
+  failure "$BASH_LINENO" "Deploy Artifacts" "1" "server.js was not found in $TARGET_DIR after copying artifacts. Check directory structure: $(ls -la "$TARGET_DIR" 2>&1)"
 fi
 
 # Populate production .env file

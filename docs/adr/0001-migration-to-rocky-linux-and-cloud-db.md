@@ -41,6 +41,12 @@ Installer awal ([ztnet.sh](file:///f:/Development/ztnet/install.ztnet/bash/ztnet
    - Mengatur `WorkingDirectory=/opt/ztnet` pada unit service systemd agar aset statis dan path runtime terbaca dengan benar.
    - Memastikan installer gagal secara eksplisit jika `server.js` tidak terbentuk alih-alih menyalakan service yang rusak.
 
+8. **Stabilitas Kompilasi Next.js Build & Penanganan Eksekusi**:
+   - Menambahkan `--max-old-space-size=2560` pada `NODE_OPTIONS` untuk mengatasi batas memori heap V8 selama kompilasi Next.js.
+   - Menggunakan `npm install --include=dev` agar dependensi build (TypeScript, PostCSS, dsb.) selalu terpasang.
+   - Meng-export seluruh variabel environment yang dibutuhkan modul server (`DATABASE_URL`, `NEXTAUTH_URL`, `NEXTAUTH_SECRET`, `NODE_ENV=production`).
+   - Memperbaiki fungsi penangkap output bash (`verbose`/`silent`) menggunakan `${PIPESTATUS[0]}` agar exit code perintah tidak tertutup oleh pipa `tee`.
+
 ## Konsekuensi
 - Installer tidak lagi memerlukan resource RAM dan disk tinggi untuk menjalankan PostgreSQL lokal di VM/host yang sama.
 - Pengguna bertanggung jawab memastikan database Supabase/Cloud PostgreSQL aktif dan kredensial valid sebelum instalasi.
