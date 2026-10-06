@@ -35,7 +35,14 @@ Installer awal ([ztnet.sh](file:///f:/Development/ztnet/install.ztnet/bash/ztnet
 6. **Uninstaller**:
    - Menyesuaikan mode uninstall (`-u`) untuk menghapus layanan `ztnet`, paket `zerotier-one` via `dnf`, dan direktori `/opt/ztnet` tanpa menyentuh Cloud Database.
 
+7. **Resolusi Artefak Standalone (`server.js`) & Systemd WorkingDirectory**:
+   - Menetapkan `SKIP_ENV_VALIDATION=1` dan menjalankan `prisma generate` sebelum `npm run build` untuk mencegah kegagalan kompilasi saat build.
+   - Menambahkan deteksi otomatis keberadaan `server.js` jika Next.js Output File Tracing meletakkannya di subfolder bersarang, lalu meratakannya ke root `/opt/ztnet/`.
+   - Mengatur `WorkingDirectory=/opt/ztnet` pada unit service systemd agar aset statis dan path runtime terbaca dengan benar.
+   - Memastikan installer gagal secara eksplisit jika `server.js` tidak terbentuk alih-alih menyalakan service yang rusak.
+
 ## Konsekuensi
 - Installer tidak lagi memerlukan resource RAM dan disk tinggi untuk menjalankan PostgreSQL lokal di VM/host yang sama.
 - Pengguna bertanggung jawab memastikan database Supabase/Cloud PostgreSQL aktif dan kredensial valid sebelum instalasi.
 - Skrip sepenuhnya kompatibel dengan standar enterprise Linux RHEL/Rocky Linux.
+

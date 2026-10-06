@@ -792,22 +792,52 @@ $STD npx prisma migrate deploy
 print_status "Seeding database..."
 $STD npx prisma db seed
 
+print_status "Generating Prisma client..."
+$STD npx prisma generate
+
 print_status "Building ZTnet artifacts... This may take a while."
+export SKIP_ENV_VALIDATION=1
 $STD npm run build
+
+# Verify build artifact generation
+if [ ! -d "$TEMP_REPO_DIR/.next/standalone" ]; then
+  failure $BASH_LINENO "npm run build" 1 "Build did not generate .next/standalone directory. Please check if the build process was terminated by memory limits (OOM)."
+fi
 
 # Deploy Artifacts
 print_status "Copying files to $TARGET_DIR..."
 mkdir -p "$TARGET_DIR"
-mkdir -p "$TARGET_DIR/.next/standalone"
+mkdir -p "$TARGET_DIR/.next"
 mkdir -p "$TARGET_DIR/prisma"
 
 cp "$TEMP_REPO_DIR/next.config.mjs" "$TARGET_DIR/"
 cp -r "$TEMP_REPO_DIR/public" "$TARGET_DIR/"
 cp "$TEMP_REPO_DIR/package.json" "$TARGET_DIR/package.json"
-
-cp -a "$TEMP_REPO_DIR/.next/standalone/." "$TARGET_DIR/"
-cp -r "$TEMP_REPO_DIR/.next/static" "$TARGET_DIR/.next/static"
 cp -r "$TEMP_REPO_DIR/prisma" "$TARGET_DIR/prisma"
+
+# Copy standalone output
+cp -a "$TEMP_REPO_DIR/.next/standalone/." "$TARGET_DIR/"
+
+# Auto-detect and flatten server.js if Next.js created it in a nested subfolder (e.g. .next/standalone/repo/server.js)
+if [ ! -f "$TARGET_DIR/server.js" ]; then
+  NESTED_SERVER=$(find "$TARGET_DIR" -maxdepth 5 -name "server.js" -type f | head -n 1)
+  if [ -n "$NESTED_SERVER" ]; then
+    NESTED_DIR=$(dirname "$NESTED_SERVER")
+    print_status "Detected nested server.js in $NESTED_DIR. Flattening to $TARGET_DIR..."
+    cp -a "$NESTED_DIR/." "$TARGET_DIR/"
+  fi
+fi
+
+# Copy static assets to .next/static
+if [ -d "$TEMP_REPO_DIR/.next/static" ]; then
+  mkdir -p "$TARGET_DIR/.next/static"
+  cp -r "$TEMP_REPO_DIR/.next/static/." "$TARGET_DIR/.next/static/"
+fi
+
+# Validate server.js exists before proceeding
+if [ ! -f "$TARGET_DIR/server.js" ]; then
+  failure $BASH_LINENO "Deploy Artifacts" 1 "server.js was not found in $TARGET_DIR after copying artifacts. Check directory structure: $(ls -la "$TARGET_DIR" 2>&1)"
+fi
 
 # Populate production .env file
 set_env_target_var "DATABASE_URL" "$DATABASE_URL"
@@ -826,6 +856,7 @@ After=network.target zerotier-one.service
 
 [Service]
 EnvironmentFile=$TARGET_DIR/.env
+WorkingDirectory=$TARGET_DIR
 ExecStart=/usr/bin/node "$TARGET_DIR/server.js"
 Restart=always
 RestartSec=5
